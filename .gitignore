@@ -1,0 +1,27 @@
+# Environments / API keys
+.env
+.venv/
+venv/
+env/
+jbvenv/
+
+# Database
+*.db
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ChromaDB (RAG vector store - regenerate with rag_pipeline.py)
+chroma_db/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
