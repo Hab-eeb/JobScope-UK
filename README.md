@@ -62,7 +62,7 @@ python data_collector.py --max-pages 5
 
 - [x] Multi-source data collection (Adzuna + Reed)
 - [x] Deduplication and persistent storage
-- [ ] Data cleaning and skill extraction
+- [x] Data cleaning and skill extraction
 - [ ] Exploratory data analysis
 - [ ] RAG pipeline
 - [ ] Streamlit demo (stretch goal)
