@@ -37,14 +37,34 @@ ROLE_CATEGORY_RULES = [
     (r"\b(llm|large language model)\b", "LLM Engineer"),
     (r"\b(ml|machine learning)\s*(engineer|developer|ops)\b", "ML Engineer"),
     (r"\b(ai|artificial intelligence)\s*(engineer|developer)\b", "AI Engineer"),
-    (r"\bdata\s*scientist\b", "Data Scientist"),
+    (r"\bdata\s*scien", "Data Scientist"),  # matches scientist, science
     (r"\bdata\s*engineer\b", "Data Engineer"),
-    (r"\bdata\s*analy", "Data Analyst"),  # matches analyst, analytics
+    (r"\bdata\s*platform\b", "Data Engineer"),
+    (r"\bdata\s*analy", "Data Analyst"),  # matches analyst, analytics, analysis
+    (r"\bdata\s*product\b", "Data Scientist"),
+    (r"\bdata\s*manage", "Data Analyst"),  # data management roles
+    (r"\bdata\s*business\s*analyst\b", "Data Analyst"),
     (r"\b(bi|business intelligence)\b", "BI Analyst"),
+    (r"\bbusiness\s*analyst\b", "BI Analyst"),
     (r"\banalytics\s*engineer\b", "Data Engineer"),
     (r"\bresearch\s*(scientist|engineer)\b", "Data Scientist"),
     (r"\bml\b", "ML Engineer"),
     (r"\b(ai|artificial intelligence)\b", "AI Engineer"),
+    # Catch analyst variants
+    (r"\bproduct\s*analyst\b", "Data Analyst"),
+    (r"\bpricing\s*analyst\b", "Data Analyst"),
+    (r"\bcommercial\s*analyst\b", "Data Analyst"),
+    (r"\bdigital\s*analyst\b", "Data Analyst"),
+    (r"\blead\s*analyst\b", "Data Analyst"),
+    (r"\bprocurement\s*analyst\b", "Data Analyst"),
+    (r"\bfinancial?\s*analyst\b", "Data Analyst"),
+    (r"\bfp&a\s*analyst\b", "Data Analyst"),
+    # Catch head/director of data
+    (r"\bhead\s*of\s*data\b", "Data Scientist"),
+    (r"\bdirector.*data\b", "Data Scientist"),
+    # Trainee/graduate data roles
+    (r"\b(trainee|graduate).*data\b", "Data Analyst"),
+    (r"\bdata.*(trainee|graduate)\b", "Data Analyst"),
 ]
 
 
@@ -95,33 +115,104 @@ def infer_seniority(title: str) -> str:
 
 # Major UK regions for normalisation
 UK_REGIONS = {
+    # London
     "london": "London",
     "greater london": "London",
     "city of london": "London",
-    "manchester": "Greater Manchester",
-    "greater manchester": "Greater Manchester",
+    # North West
+    "manchester": "North West",
+    "greater manchester": "North West",
+    "liverpool": "North West",
+    "warrington": "North West",
+    "blackpool": "North West",
+    "lancashire": "North West",
+    "cheshire": "North West",
+    "north west": "North West",
+    # North East
+    "newcastle": "North East",
+    "tyne": "North East",
+    "sunderland": "North East",
+    "durham": "North East",
+    "north east": "North East",
+    # Yorkshire
+    "leeds": "Yorkshire",
+    "west yorkshire": "Yorkshire",
+    "sheffield": "Yorkshire",
+    "york": "Yorkshire",
+    "bradford": "Yorkshire",
+    "yorkshire": "Yorkshire",
+    # West Midlands
     "birmingham": "West Midlands",
     "west midlands": "West Midlands",
-    "leeds": "West Yorkshire",
-    "west yorkshire": "West Yorkshire",
-    "bristol": "Bristol",
+    "coventry": "West Midlands",
+    "telford": "West Midlands",
+    "shropshire": "West Midlands",
+    # East Midlands
+    "nottingham": "East Midlands",
+    "derby": "East Midlands",
+    "leicester": "East Midlands",
+    "east midlands": "East Midlands",
+    # East of England
+    "cambridge": "East of England",
+    "norwich": "East of England",
+    "eastern england": "East of England",
+    "hertfordshire": "East of England",
+    "stevenage": "East of England",
+    "essex": "East of England",
+    # South East
+    "oxford": "South East",
+    "reading": "South East",
+    "milton keynes": "South East",
+    "buckinghamshire": "South East",
+    "hampshire": "South East",
+    "southampton": "South East",
+    "brighton": "South East",
+    "surrey": "South East",
+    "kent": "South East",
+    "south east": "South East",
+    # South West
+    "bristol": "South West",
+    "exeter": "South West",
+    "devon": "South West",
+    "gloucester": "South West",
+    "gloucestershire": "South West",
+    "cheltenham": "South West",
+    "bath": "South West",
+    "south west": "South West",
+    # Scotland
     "edinburgh": "Scotland",
     "glasgow": "Scotland",
     "scotland": "Scotland",
+    # Wales
     "cardiff": "Wales",
+    "swansea": "Wales",
     "wales": "Wales",
-    "cambridge": "East of England",
-    "oxford": "South East",
-    "reading": "South East",
-    "south east": "South East",
-    "south west": "South West",
-    "north west": "North West",
-    "north east": "North East",
-    "east midlands": "East Midlands",
-    "yorkshire": "Yorkshire",
+    # Northern Ireland
     "belfast": "Northern Ireland",
     "northern ireland": "Northern Ireland",
+    # Remote
     "remote": "Remote",
+}
+
+# UK postcode area to region mapping (first 1-2 letters of postcode)
+POSTCODE_REGIONS = {
+    "e": "London", "ec": "London", "n": "London", "nw": "London",
+    "se": "London", "sw": "London", "w": "London", "wc": "London",
+    "m": "North West", "ol": "North West", "wa": "North West",
+    "bl": "North West", "pr": "North West", "l": "North West",
+    "ne": "North East", "sr": "North East", "dh": "North East",
+    "ls": "Yorkshire", "bd": "Yorkshire", "s": "Yorkshire",
+    "b": "West Midlands", "tf": "West Midlands", "cv": "West Midlands",
+    "ng": "East Midlands", "de": "East Midlands", "le": "East Midlands",
+    "cb": "East of England", "sg": "East of England", "lu": "East of England",
+    "ox": "South East", "rg": "South East", "mk": "South East",
+    "so": "South East", "bn": "South East",
+    "bs": "South West", "gl": "South West", "ex": "South West",
+    "pl": "South West",
+    "eh": "Scotland", "g": "Scotland",
+    "cf": "Wales",
+    "bt": "Northern Ireland",
+    "cr": "London",  # Croydon
 }
 
 
@@ -136,14 +227,32 @@ def parse_location(location_str: str) -> tuple:
     if "remote" in loc_lower or "home" in loc_lower or "anywhere" in loc_lower:
         return ("Remote", "Remote")
 
-    # Try to match known regions/cities
+    # Handle generic UK entries
+    if loc_lower in ("uk", "united kingdom", "england", "great britain", "gb"):
+        return ("UK-wide", "UK-wide")
+
+    # Try to match known regions/cities by keyword
     city = location_str.split(",")[0].strip() if "," in location_str else location_str.strip()
 
-    region = "Other UK"
+    region = None
     for keyword, mapped_region in UK_REGIONS.items():
         if keyword in loc_lower:
             region = mapped_region
             break
+
+    # If no keyword match, try postcode matching
+    if not region:
+        # Extract postcode-like pattern (letters at start of string or after space)
+        postcode_match = re.match(r'^([a-zA-Z]{1,2})\d', loc_lower.replace(" ", ""))
+        if postcode_match:
+            prefix = postcode_match.group(1).lower()
+            # Try 2-letter prefix first, then 1-letter
+            region = POSTCODE_REGIONS.get(prefix) or POSTCODE_REGIONS.get(prefix[0])
+            if region:
+                city = location_str.strip()  # Use full string as city for postcode entries
+
+    if not region:
+        region = "Other UK"
 
     return (city, region)
 
@@ -184,11 +293,16 @@ for skill in ALL_SKILLS:
         )
 
 
-def extract_skills(description_clean: str) -> list:
-    """Extracts matching skills from a cleaned job description."""
+def extract_skills(description_clean: str, title: str = "", search_term: str = "") -> list:
+    """Extracts matching skills from a cleaned job description + title + search term.
+    Combines all text sources to maximise extraction from short API descriptions.
+    """
+    # Combine all text sources for matching
+    combined_text = f"{title.lower()} {search_term.lower()} {description_clean}"
+    
     found = []
     for skill, pattern in _SKILL_PATTERNS.items():
-        if pattern.search(description_clean):
+        if pattern.search(combined_text):
             found.append(skill)
     return sorted(set(found))
 
@@ -251,7 +365,7 @@ def process_all_jobs(reset: bool = False):
         if not salary_min and not salary_max:
             has_real_salary = 0
 
-        skills = extract_skills(description_clean)
+        skills = extract_skills(description_clean, title_original, job["search_term"] or "")
 
         try:
             conn.execute('''
@@ -353,6 +467,7 @@ def print_summary():
     print(f"{'='*50}")
     conn.close()
 
+
 def main():
     parser = argparse.ArgumentParser(description="JobScope UK — Data Processor")
     parser.add_argument("--reset", action="store_true",
@@ -364,4 +479,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    

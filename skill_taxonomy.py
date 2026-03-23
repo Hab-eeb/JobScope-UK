@@ -62,8 +62,13 @@ SKILL_TAXONOMY = {
         "bayesian", "neural network", "cnn", "rnn", "lstm",
         "transformer", "gan", "automl",
         "statistical modelling", "statistical modeling",
+        "statistical analysis", "statistics",
         "predictive modelling", "predictive modeling",
         "data mining", "web scraping", "sentiment analysis",
+        "data analysis", "data analytics",
+        "data visualisation", "data visualization",
+        "data modelling", "data modeling",
+        "reporting", "dashboards",
     ],
     "data_formats_and_tools": [
         "pandas", "numpy", "scipy", "polars",
