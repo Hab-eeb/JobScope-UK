@@ -49,6 +49,8 @@ ROLE_CATEGORY_RULES = [
     (r"\banalytics\s*engineer\b", "Data Engineer"),
     (r"\bresearch\s*(scientist|engineer)\b", "Data Scientist"),
     (r"\bml\b", "ML Engineer"),
+    (r"\bdata\s*architect", "Data Engineer"),  # data architecture roles
+    (r"\bfinance\s*analyst\b", "Data Analyst"),
     (r"\b(ai|artificial intelligence)\b", "AI Engineer"),
     # Catch analyst variants
     (r"\bproduct\s*analyst\b", "Data Analyst"),
