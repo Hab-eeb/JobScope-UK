@@ -38,6 +38,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS clean_jobs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             raw_job_id INTEGER REFERENCES raw_jobs(id),
+            job_source TEXT,
             title_original TEXT,
             title_normalized TEXT,
             role_category TEXT,

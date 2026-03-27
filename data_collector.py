@@ -179,6 +179,13 @@ def fetch_reed_jobs_page(search_term: str, skip: int = 0, results_to_take: int =
     response.raise_for_status()
     return response.json().get("results", [])
 
+def fetch_reed_job_details(job_id: str) -> dict:
+    """Fetches full job details from Reed API."""
+    url = f"https://www.reed.co.uk/api/1.0/jobs/{job_id}"
+    response = requests.get(url, auth=(REED_API_KEY, ""))
+    response.raise_for_status()
+    return response.json()
+
 
 def save_reed_jobs_to_db(jobs: list, search_term: str) -> int:
     """Saves Reed job results to the raw_jobs table. Returns new jobs inserted."""
@@ -204,8 +211,8 @@ def save_reed_jobs_to_db(jobs: list, search_term: str) -> int:
                 job.get("locationName", ""),
                 job.get("minimumSalary"),
                 job.get("maximumSalary"),
-                0,  # Reed doesn't flag predicted salaries
-                "",  # Reed doesn't return categories in search
+                0,
+                "",
                 job.get("jobUrl", ""),
                 job.get("date", ""),
                 date_collected,
@@ -221,9 +228,9 @@ def save_reed_jobs_to_db(jobs: list, search_term: str) -> int:
 
 
 def collect_reed_for_term(search_term: str, max_pages: int = 3) -> int:
-    """Collects Reed jobs for a single search term. Returns total new jobs."""
+    """Collects Reed jobs with full descriptions for a single search term."""
     total_new = 0
-    results_per_page = 100  # Reed allows up to 100
+    results_per_page = 100
     print(f"\n  [Reed] Searching: '{search_term}'")
 
     for page in range(max_pages):
@@ -235,11 +242,21 @@ def collect_reed_for_term(search_term: str, max_pages: int = 3) -> int:
                 print(f"    Page {page+1}: No more results.")
                 break
 
-            new = save_reed_jobs_to_db(results, search_term)
-            total_new += new
-            print(f"    Page {page+1}: {len(results)} fetched, {new} new saved")
+            # Fetch full details for each job
+            full_jobs = []
+            for job in results:
+                job_id = job.get("jobId")
+                try:
+                    details = fetch_reed_job_details(str(job_id))
+                    full_jobs.append(details)
+                    time.sleep(0.3)  # Rate limit: ~3 requests/sec
+                except Exception as e:
+                    # Fall back to search result if details fetch fails
+                    full_jobs.append(job)
 
-            time.sleep(0.5)
+            new = save_reed_jobs_to_db(full_jobs, search_term)
+            total_new += new
+            print(f"    Page {page+1}: {len(results)} fetched, {new} new saved (with full descriptions)")
 
         except requests.exceptions.HTTPError as e:
             print(f"    HTTP Error: {e}")
@@ -249,6 +266,76 @@ def collect_reed_for_term(search_term: str, max_pages: int = 3) -> int:
             break
 
     return total_new
+
+# def save_reed_jobs_to_db(jobs: list, search_term: str) -> int:
+#     """Saves Reed job results to the raw_jobs table. Returns new jobs inserted."""
+#     conn = sqlite3.connect(DB_NAME)
+#     cursor = conn.cursor()
+#     new_count = 0
+#     date_collected = datetime.now().isoformat()
+
+#     for job in jobs:
+#         try:
+#             cursor.execute('''
+#                 INSERT INTO raw_jobs
+#                 (source, external_id, title, company, description, location,
+#                  salary_min, salary_max, salary_is_predicted, category, url,
+#                  date_posted, date_collected, search_term)
+#                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+#             ''', (
+#                 "reed",
+#                 str(job.get("jobId", "")),
+#                 job.get("jobTitle", ""),
+#                 job.get("employerName", ""),
+#                 job.get("jobDescription", ""),
+#                 job.get("locationName", ""),
+#                 job.get("minimumSalary"),
+#                 job.get("maximumSalary"),
+#                 0,  # Reed doesn't flag predicted salaries
+#                 "",  # Reed doesn't return categories in search
+#                 job.get("jobUrl", ""),
+#                 job.get("date", ""),
+#                 date_collected,
+#                 search_term,
+#             ))
+#             new_count += 1
+#         except sqlite3.IntegrityError:
+#             pass
+
+#     conn.commit()
+#     conn.close()
+#     return new_count
+
+
+# def collect_reed_for_term(search_term: str, max_pages: int = 3) -> int:
+#     """Collects Reed jobs for a single search term. Returns total new jobs."""
+#     total_new = 0
+#     results_per_page = 100  # Reed allows up to 100
+#     print(f"\n  [Reed] Searching: '{search_term}'")
+
+#     for page in range(max_pages):
+#         skip = page * results_per_page
+#         try:
+#             results = fetch_reed_jobs_page(search_term, skip=skip, results_to_take=results_per_page)
+
+#             if not results:
+#                 print(f"    Page {page+1}: No more results.")
+#                 break
+
+#             new = save_reed_jobs_to_db(results, search_term)
+#             total_new += new
+#             print(f"    Page {page+1}: {len(results)} fetched, {new} new saved")
+
+#             time.sleep(0.5)
+
+#         except requests.exceptions.HTTPError as e:
+#             print(f"    HTTP Error: {e}")
+#             break
+#         except Exception as e:
+#             print(f"    Error: {e}")
+#             break
+
+#     return total_new
 
 def run_collection(search_terms: list = None, max_pages: int = 5):
     """Main collection pipeline. Iterates through search terms and collects from Adzuna + Reed."""

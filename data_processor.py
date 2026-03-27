@@ -372,13 +372,14 @@ def process_all_jobs(reset: bool = False):
         try:
             conn.execute('''
                 INSERT INTO clean_jobs
-                (raw_job_id, title_original, title_normalized, role_category, company,
+                (raw_job_id,job_source, title_original, title_normalized, role_category, company,
                  description_clean, location_raw, location_city, location_region,
                  salary_min, salary_max, salary_mid, has_real_salary,
                  extracted_skills, date_posted, seniority)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 job["id"],
+                job["source"],
                 title_original,
                 title_normalized,
                 role_category,
