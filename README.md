@@ -17,9 +17,9 @@ A data pipeline and analysis tool that collects UK job market data from multiple
 
 | Source | Jobs | Role Categories |
 |--------|------|-----------------|
-| Adzuna | 1,506 | Data Scientist, Data Analyst, ML Engineer, Data Engineer, AI Engineer, BI Analyst, LLM Engineer, NLP Engineer |
-| Reed | 1,259 | Same categories |
-| **Total** | **2,765** | |
+| Adzuna | 1,388 | Data Scientist, Data Analyst, ML Engineer, Data Engineer, AI Engineer, BI Analyst, LLM Engineer, NLP Engineer |
+| Reed | 980 | Same categories |
+| **Total** | **2,368** | |
 
 ### Tech Stack
 
@@ -63,6 +63,6 @@ python data_collector.py --max-pages 5
 - [x] Multi-source data collection (Adzuna + Reed)
 - [x] Deduplication and persistent storage
 - [x] Data cleaning and skill extraction
-- [x] Exploratory data analysis
+- [ ] Exploratory data analysis
 - [ ] RAG pipeline
 - [ ] Streamlit demo (stretch goal)
