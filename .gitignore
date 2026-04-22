@@ -17,6 +17,7 @@ __pycache__/
 
 # ChromaDB (RAG vector store - regenerate with rag_pipeline.py)
 chroma_db/
+data/
 
 # IDE
 .vscode/
