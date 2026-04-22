@@ -6,3 +6,7 @@ seaborn
 plotly
 beautifulsoup4
 jupyter
+
+google-genai
+chromadb
+scipy
