@@ -1,7 +1,6 @@
 """
 JobScope UK — RAG Pipeline
 
-Phase 4:
 - Load cleaned jobs from SQLite
 - Turn each job into an enriched text document
 - Embed documents with Gemini
@@ -20,7 +19,7 @@ import json
 import time
 import sqlite3
 import argparse
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 import chromadb
 from dotenv import load_dotenv
@@ -43,11 +42,47 @@ collection = chroma_client.get_or_create_collection(
     metadata={"hnsw:space": "cosine"}
 )
 
+def get_existing_job_ids() -> set:
+    """
+    Read already indexed job IDs from Chroma so we can resume indexing
+    without duplicating work.
+    """
+    try:
+        total = collection.count()
+        if total == 0:
+            return set()
+
+        results = collection.get(limit=total, include=["metadatas"])
+        metadatas = results.get("metadatas", []) or []
+
+        existing_ids = set()
+        for meta in metadatas:
+            if meta and "job_id" in meta:
+                existing_ids.add(meta["job_id"])
+
+        return existing_ids
+
+    except Exception as e:
+        print(f"Warning: could not read existing indexed IDs from Chroma: {e}")
+        return set()
+
+
+def show_collection_status() -> None:
+    """Quick status check for how many docs are already indexed."""
+    try:
+        total = collection.count()
+        print(f"Current indexed documents in Chroma: {total}")
+    except Exception as e:
+        print(f"Could not read collection count: {e}")
 
 # ── Database Loading ───────────────────────────────────────────────────
 
-def load_clean_jobs(limit: Optional[int] = None) -> List[Dict[str, Any]]:
-    """Load cleaned jobs from SQLite."""
+def load_clean_jobs(
+    limit: Optional[int] = None,
+    source_only: Optional[str] = None,
+    exclude_indexed: bool = True
+) -> List[Dict[str, Any]]:
+    """Load cleaned jobs from SQLite, optionally filtering by source and excluding already indexed jobs."""
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
 
@@ -75,17 +110,19 @@ def load_clean_jobs(limit: Optional[int] = None) -> List[Dict[str, Any]]:
           AND TRIM(description_clean) != ''
     """
 
-    if limit:
-        query += f" LIMIT {int(limit)}"
+    params = []
 
-    rows = conn.execute(query).fetchall()
+    if source_only:
+        query += " AND job_source = ?"
+        params.append(source_only)
+
+    rows = conn.execute(query, params).fetchall()
     conn.close()
 
     jobs = []
     for row in rows:
         job = dict(row)
 
-        # Parse extracted skills safely
         try:
             job["extracted_skills"] = json.loads(job["extracted_skills"]) if job["extracted_skills"] else []
         except json.JSONDecodeError:
@@ -93,8 +130,14 @@ def load_clean_jobs(limit: Optional[int] = None) -> List[Dict[str, Any]]:
 
         jobs.append(job)
 
-    return jobs
+    if exclude_indexed:
+        existing_ids = get_existing_job_ids()
+        jobs = [job for job in jobs if job["id"] not in existing_ids]
 
+    if limit:
+        jobs = jobs[:limit]
+
+    return jobs
 
 # ── Document Construction ──────────────────────────────────────────────
 
@@ -137,14 +180,18 @@ def create_rag_document(job: Dict[str, Any], max_description_chars: int = 4500) 
 
 # ── Embeddings ─────────────────────────────────────────────────────────
 
-def get_embedding(text: str) -> List[float]:
+def get_embedding(text: str) -> Tuple[Optional[List[float]], Optional[str]]:
     """Generate a Gemini embedding for a single text."""
-    response = client.models.embed_content(
-        model="gemini-embedding-001",
-        contents=text
-    )
-    return response.embeddings[0].values
-
+    try:
+        response = client.models.embed_content(
+            model="gemini-embedding-001",
+            contents=text
+        )
+        return response.embeddings[0].values, None
+    except Exception as e:
+        error_text = str(e)
+        print(f"Embedding error: {error_text}")
+        return None, error_text
 
 # ── Indexing ───────────────────────────────────────────────────────────
 
@@ -161,71 +208,111 @@ def reset_collection() -> None:
         metadata={"hnsw:space": "cosine"}
     )
 
+def chunk_list(items: List[Any], chunk_size: int) -> List[List[Any]]:
+    """Split a list into smaller chunks."""
+    return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
 
-def index_jobs(limit: Optional[int] = None, reset: bool = False, batch_size: int = 25) -> None:
-    """Index jobs into ChromaDB."""
+def index_jobs(
+    limit: Optional[int] = None,
+    reset: bool = False,
+    batch_size: int = 100,
+    source_only: Optional[str] = None
+) -> None:
+    """
+    Index jobs into ChromaDB.
+
+    Features:
+    - optional source filter (e.g. Reed only)
+    - skips already indexed jobs
+    - processes in small batches
+    - resumable if quota runs out
+    """
     if reset:
         print("Resetting Chroma collection...")
         reset_collection()
 
-    jobs = load_clean_jobs(limit=limit)
-    print(f"Loaded {len(jobs)} cleaned jobs from SQLite.")
+    show_collection_status()
+
+    jobs = load_clean_jobs(
+        limit=limit,
+        source_only=source_only,
+        exclude_indexed=True
+    )
+
+    print(f"Jobs selected for indexing: {len(jobs)}")
+    if source_only:
+        print(f"Source filter applied: {source_only}")
 
     if not jobs:
-        print("No jobs found to index.")
+        print("No new jobs found to index.")
         return
 
-    documents = []
-    embeddings = []
-    ids = []
-    metadatas = []
+    job_batches = chunk_list(jobs, batch_size)
 
-    for i, job in enumerate(jobs, start=1):
-        doc_text = create_rag_document(job)
+    indexed_this_run = 0
+    failed_this_run = 0
 
-        try:
-            embedding = get_embedding(doc_text)
-        except Exception as e:
-            print(f"Embedding failed for job {job['id']}: {e}")
-            continue
+    for batch_num, batch in enumerate(job_batches, start=1):
+        print(f"\nProcessing batch {batch_num}/{len(job_batches)} ({len(batch)} jobs)...")
 
-        documents.append(doc_text)
-        embeddings.append(embedding)
-        ids.append(f"job_{job['id']}")
-        metadatas.append({
-            "job_id": job["id"],
-            "role_category": job.get("role_category", "Unknown"),
-            "location_region": job.get("location_region", "Unknown"),
-            "seniority": job.get("seniority", "Unknown"),
-            "company": job.get("company", "Unknown"),
-            "has_real_salary": int(job.get("has_real_salary", 0) or 0),
-            "salary_mid": float(job["salary_mid"]) if job.get("salary_mid") is not None else 0.0,
-        })
+        documents = []
+        embeddings = []
+        ids = []
+        metadatas = []
 
-        # Small delay to be gentle with rate limits
-        time.sleep(0.1)
+        for job in batch:
+            doc_text = create_rag_document(job)
 
-        if len(documents) >= batch_size:
-            collection.add(
-                documents=documents,
-                embeddings=embeddings,
-                ids=ids,
-                metadatas=metadatas
-            )
-            print(f"Indexed {i}/{len(jobs)} jobs...")
-            documents, embeddings, ids, metadatas = [], [], [], []
+            embedding, error_text = get_embedding(doc_text)
 
-    # Add leftovers
-    if documents:
-        collection.add(
-            documents=documents,
-            embeddings=embeddings,
-            ids=ids,
-            metadatas=metadatas
-        )
+            if embedding is None:
+                failed_this_run += 1
 
-    print("Indexing complete.")
+                # Stop the run early if quota is exhausted repeatedly
+                if error_text and "429" in error_text and "RESOURCE_EXHAUSTED" in error_text:
+                    print("\nQuota exhausted. Stopping this indexing run early to preserve time.")
+                    break
 
+                continue
+
+            documents.append(doc_text)
+            embeddings.append(embedding)
+            ids.append(f"job_{job['id']}")
+            metadatas.append({
+                "job_id": job["id"],
+                "job_source": job.get("job_source", "Unknown"),
+                "role_category": job.get("role_category", "Unknown"),
+                "location_region": job.get("location_region", "Unknown"),
+                "seniority": job.get("seniority", "Unknown"),
+                "company": job.get("company", "Unknown"),
+                "has_real_salary": int(job.get("has_real_salary", 0) or 0),
+                "salary_mid": float(job["salary_mid"]) if job.get("salary_mid") is not None else 0.0,
+            })
+
+            # Be gentle with quotas
+            time.sleep(0.5)
+
+        if failed_this_run > 0 and len(documents) < len(batch):
+            # If we broke out early because of quota exhaustion, still add successful docs
+            pass
+
+        if documents:
+            try:
+                collection.add(
+                    documents=documents,
+                    embeddings=embeddings,
+                    ids=ids,
+                    metadatas=metadatas
+                )
+                indexed_this_run += len(documents)
+                print(f"Added {len(documents)} documents from batch {batch_num}.")
+            except Exception as e:
+                print(f"Failed to add batch {batch_num} to Chroma: {e}")
+
+        print(f"Running totals -> indexed: {indexed_this_run}, failed embeddings: {failed_this_run}")
+
+    print("\nIndexing run complete.")
+    show_collection_status()
 
 # ── Retrieval ──────────────────────────────────────────────────────────
 
@@ -274,6 +361,59 @@ def retrieve(
     results = collection.query(**kwargs)
     return results
 
+def inspect_collection_sample(limit: int = 5) -> None:
+    """Print a small sample of indexed documents and metadata."""
+    try:
+        results = collection.get(limit=limit, include=["documents", "metadatas"])
+        docs = results.get("documents", [])
+        metas = results.get("metadatas", [])
+
+        print(f"\nShowing {len(docs)} sample indexed documents:\n")
+        for i, (doc, meta) in enumerate(zip(docs, metas), start=1):
+            print("=" * 80)
+            print(f"SAMPLE {i}")
+            print("=" * 80)
+            print("Metadata:", meta)
+            print("\nDocument preview:")
+            print(doc[:700])
+            print("\n")
+    except Exception as e:
+        print(f"Could not inspect collection sample: {e}")
+
+def preview_retrieval(
+    question: str,
+    n_results: int = 3,
+    role: Optional[str] = None,
+    region: Optional[str] = None,
+    seniority: Optional[str] = None
+) -> None:
+    """Show retrieved documents before generation."""
+    results = retrieve(
+        query=question,
+        n_results=n_results,
+        role=role,
+        region=region,
+        seniority=seniority
+    )
+
+    docs = results.get("documents", [[]])[0]
+    metas = results.get("metadatas", [[]])[0]
+    ids = results.get("ids", [[]])[0]
+
+    if not docs:
+        print("No documents retrieved.")
+        return
+
+    print(f"\nRetrieved {len(docs)} documents for question: {question}\n")
+
+    for i, (doc_id, meta, doc) in enumerate(zip(ids, metas, docs), start=1):
+        print("=" * 100)
+        print(f"RESULT {i}: {doc_id}")
+        print("=" * 100)
+        print("Metadata:", meta)
+        print("\nPreview:")
+        print(doc[:1000])
+        print("\n")
 
 # ── Generation ────────────────────────────────────────────────────────
 
@@ -377,12 +517,38 @@ def main():
     parser.add_argument("--region", type=str, default=None, help="Optional location region filter")
     parser.add_argument("--seniority", type=str, default=None, help="Optional seniority filter")
     parser.add_argument("--n_results", type=int, default=5, help="Number of retrieved docs")
+    parser.add_argument("--source", type=str, default=None, help="Optional source filter, e.g. reed")
+    parser.add_argument("--status", action="store_true", help="Show Chroma collection status")
+    parser.add_argument("--inspect", action="store_true", help="Inspect a sample of indexed docs")
+    parser.add_argument("--preview", type=str, help="Preview retrieved documents for a question")
+
+
 
     args = parser.parse_args()
 
     if args.index:
-        index_jobs(limit=args.limit, reset=args.reset)
+        index_jobs(
+                limit=args.limit,
+                reset=args.reset,
+                batch_size=100,
+                source_only=args.source
+            )
+    if args.preview:
 
+        preview_retrieval(
+        question=args.preview,
+        n_results=args.n_results,
+        role=args.role,
+        region=args.region,
+        seniority=args.seniority
+    )
+    
+    if args.inspect:
+        inspect_collection_sample()
+    
+    if args.status:
+        show_collection_status()
+       
     if args.ask:
         result = ask(
             question=args.ask,
