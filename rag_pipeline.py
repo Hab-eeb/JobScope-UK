@@ -290,7 +290,7 @@ def index_jobs(
             })
 
             # Be gentle with quotas
-            time.sleep(0.5)
+            time.sleep(5.0)
 
         if failed_this_run > 0 and len(documents) < len(batch):
             # If we broke out early because of quota exhaustion, still add successful docs
