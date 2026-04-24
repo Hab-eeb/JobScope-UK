@@ -346,15 +346,19 @@ def retrieve(
     region: Optional[str] = None,
     seniority: Optional[str] = None
 ) -> Dict[str, Any]:
-    
     """Retrieve most relevant documents for a query."""
-    query_embedding = get_embedding(query)
+    query_embedding, error_text = get_embedding(query)
+
+    if query_embedding is None:
+        raise ValueError(f"Failed to embed query: {error_text}")
+
     where_filter = build_where_filter(role=role, region=region, seniority=seniority)
 
     kwargs = {
         "query_embeddings": [query_embedding],
         "n_results": n_results
     }
+
     if where_filter:
         kwargs["where"] = where_filter
 
@@ -493,7 +497,7 @@ def ask(
     prompt = build_prompt(question, docs, metas)
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-2.5-flash-lite",
         contents=prompt
     )
 
