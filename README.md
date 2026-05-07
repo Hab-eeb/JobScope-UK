@@ -2,7 +2,7 @@
 
 ## UK Job Market Intelligence Tool for Data & AI Roles
 
-JobScope UK is a portfolio project that analyzes the UK job market for data and AI roles using real job postings collected from the Adzuna and Reed APIs. It combines a structured data pipeline, exploratory analysis, NLP-based skill extraction, and a Retrieval-Augmented Generation (RAG) interface that lets users ask natural-language questions grounded in actual job descriptions.
+JobScope UK is a portfolio project that analyzes the UK job market for data and AI roles using real job postings collected from the Adzuna and Reed APIs. It combines a structured data pipeline, exploratory analysis, NLP-based skill extraction, and a SQL-aware Retrieval-Augmented Generation (RAG) interface that lets users ask both qualitative and analytical questions over the dataset.
 
 The project was designed to answer a practical question: **what skills, tools, and role patterns are employers in the UK really asking for across data and AI jobs?**
 
@@ -19,7 +19,7 @@ This project demonstrates:
 - NLP / rule-based skill extraction
 - EDA and storytelling with visualizations
 - RAG architecture using Gemini + ChromaDB
-- practical tradeoff handling around source quality, embeddings, and retrieval
+- practical tradeoff handling around source quality, embeddings, retrieval, and analytical routing
 
 ---
 
@@ -99,8 +99,13 @@ The cleaned dataset is analyzed to identify:
 - skill co-occurrence
 - differences across role categories
 
-### 4. RAG Pipeline
-A subset of high-quality job postings is embedded and indexed into ChromaDB. User questions are embedded with Gemini, semantically matched to the nearest postings, and then answered using Gemini generation grounded in retrieved job content.
+### 4. SQL-Aware RAG Pipeline
+The query layer now supports three answer paths:
+- **RAG** for qualitative, posting-grounded questions
+- **SQL** for representative dataset-wide analysis
+- **Hybrid** for questions that need both aggregate evidence and example postings
+
+A subset of high-quality job postings is embedded and indexed into ChromaDB, while the cleaned SQLite dataset supports structured analytical queries over skills, salaries, role counts, seniority, source, and region.
 
 ---
 
@@ -178,18 +183,38 @@ More charts are available in the [`outputs/`](outputs) folder and the analysis n
 
 ---
 
-## RAG System
+## SQL-Aware RAG System
 
-The RAG layer was built to allow natural-language questions over real job postings rather than relying on generic model knowledge.
+The answer layer was built to support natural-language questions over real job postings without forcing every question through retrieval alone.
 
 ### How it works
 
-1. Cleaned job postings are converted into enriched text documents
-2. Gemini embeddings are created for those documents
-3. The embeddings and metadata are stored in **ChromaDB**
-4. A user question is embedded
-5. ChromaDB retrieves the nearest job postings
-6. Gemini generates a grounded answer using the retrieved context
+1. Cleaned job postings are stored in SQLite with structured fields such as role, region, seniority, salary, and extracted skills
+2. High-quality postings are converted into enriched text documents
+3. Gemini embeddings are created for those documents
+4. The embeddings and metadata are stored in **ChromaDB**
+5. A user question is classified into one of three routes:
+   `rag`, `sql`, or `hybrid`
+6. The system either:
+   - retrieves similar postings from ChromaDB
+   - runs a constrained analytical SQL query over `clean_jobs`
+   - or combines both into one answer
+7. Gemini generates the final answer when the route requires natural-language synthesis
+
+### Routing logic
+
+- **RAG** is used for qualitative questions such as:
+  “What do junior data analyst roles usually require?”
+- **SQL** is used for aggregate questions such as:
+  “What are the top 10 skills for Data Analyst?”
+- **Hybrid** is used when the user wants representative analysis plus real examples, such as:
+  “What skills do Data Analyst jobs usually mention?”
+
+The SQL layer is intentionally constrained. The pipeline does not execute arbitrary model-written SQL. Instead, it maps supported question types into approved query templates for:
+- top skills by role / region / seniority
+- job counts and grouped breakdowns
+- salary summaries and median salary by group
+- skill demand comparisons across roles or other groupings
 
 ### Why ChromaDB
 ChromaDB was used as the vector database because it provides:
@@ -199,58 +224,128 @@ ChromaDB was used as the vector database because it provides:
 - a simple Python API for prototyping
 
 ### Practical note
-For the first RAG version, indexing focused on **Reed postings** because they contained fuller descriptions than Adzuna postings, which led to better retrieval quality.
+Indexing focused on **Reed postings** because they contained fuller descriptions than Adzuna postings, which led to better retrieval quality. SQLite remains the analytical source of truth for representative counts and aggregations.
 
 ---
 
-## Example RAG Questions and Answers
+## Example Questions and Answers
 
-### 1. What do junior data analyst roles usually require?
+Below are real captured outputs from the CLI rather.
 
-**Answer:**  
-Junior data analyst roles, particularly trainee positions, are designed for individuals with limited or no prior experience. These roles typically require strong attention to detail, organisation, analytical thinking, and good communication skills. Many postings also describe structured training pathways covering Excel, SQL, Python, Tableau, and entry-level certifications.
+### 1. RAG example
 
----
+```bash
+./jbvenv/bin/python rag_pipeline.py --ask "What do junior data analyst roles usually require?" --role "Data Analyst" --seniority junior
+```
 
-### 2. How do data engineer roles differ from data analyst roles?
+```text
+================================================================================
+ANSWER
+================================================================================
+Answer:
+Junior data analyst roles, particularly trainee positions, are designed for individuals with limited or no prior experience. These roles typically require a strong aptitude for detail, perceptiveness, organisation, competence, and analytical skills, coupled with good communication abilities. The postings suggest that these roles often involve a structured career program that includes obtaining specific qualifications and training in various data analysis tools and methodologies.
 
-**Answer:**  
-Data Engineer roles focus more on modern data platform migration, data pipelines, cloud infrastructure, warehousing, and data quality. In contrast, Data Analyst roles emphasize reporting, dashboards, business-facing analysis, and foundational tooling such as Excel, SQL, Tableau, and Python.
+Evidence from postings:
+- These roles are specifically designed for entry-level individuals with limited or no experience.
+- Key transferable skills sought include being detail-oriented, perceptive, organised, competent, analytical, and having good communication skills.
+- The advertised positions involve a career programme that includes obtaining a Comptia Data+ qualification.
+- Training in essential data analysis tools such as Microsoft Excel (to expert level), SQL, Python 3, and Tableau is a common requirement.
+- Further training in Business Analysis Foundation is often included to enhance employability.
 
----
+Source summary:
+The answer is based on multiple junior Data Analyst (Trainee) roles from ITOL Recruit across various UK regions (West Midlands, Yorkshire, Other UK, South East).
 
-### 3. What skills are common in data scientist roles?
+================================================================================
+RETRIEVED SOURCES
+================================================================================
+1. role=Data Analyst | region=West Midlands | seniority=junior | company=ITOL Recruit
+2. role=Data Analyst | region=Yorkshire | seniority=junior | company=ITOL Recruit
+3. role=Data Analyst | region=Other UK | seniority=junior | company=ITOL Recruit
+4. role=Data Analyst | region=Other UK | seniority=junior | company=ITOL Recruit
+5. role=Data Analyst | region=South East | seniority=junior | company=ITOL Recruit
+```
 
-**Answer:**  
-Python is consistently required across retrieved data scientist postings, often alongside SQL, machine learning libraries, cloud platforms, modeling, and stakeholder-facing insight communication.
+### 2. SQL example
 
----
+```bash
+./jbvenv/bin/python rag_pipeline.py --ask "What are the top 10 skills for Data Analyst?" --show-sql
+```
 
-### 4. What tools are common in AI engineer jobs?
+```text
+================================================================================
+ANSWER
+================================================================================
+Answer:
+- The top skill for role=Data Analyst is reporting (260 jobs, 46.3% of matching postings).
 
-**Answer:**  
-AI Engineer roles frequently mention Python, PyTorch, TensorFlow, Hugging Face, cloud platforms such as Azure, AWS, and GCP, and newer GenAI frameworks such as LangChain, LangGraph, and LlamaIndex. MLOps and deployment tools such as Docker and Kubernetes also appear regularly.
+Result table:
+| skill | job_count | pct_jobs |
+| --- | --- | --- |
+| reporting | 260 | 46.3 |
+| sql | 249 | 44.4 |
+| dashboards | 240 | 42.8 |
+| excel | 197 | 35.1 |
+| python | 195 | 34.8 |
+| data analysis | 194 | 34.6 |
+| tableau | 182 | 32.4 |
+| data analytics | 157 | 28.0 |
+| power bi | 120 | 21.4 |
+| data mining | 108 | 19.3 |
 
----
+Dataset basis:
+- Filters used: role=Data Analyst
+- Matching sample size: 561
 
-### 5. What is expected in senior data engineer roles?
+Notes:
+- None
 
-**Answer:**  
-Senior Data Engineer roles emphasize scalable architecture design, building and maintaining ETL/ELT pipelines, data quality, cloud infrastructure, CI/CD, observability, automation, and warehouse/platform reliability.
+================================================================================
+ROUTE
+================================================================================
+sql
+```
 
----
+### 3. Hybrid example
 
-### 6. What is the salary range for senior data engineer roles?
+```bash
+./jbvenv/bin/python rag_pipeline.py --ask "What is the demand for r for data analyst and AI engineer and what are the top 4 roles that require r as a skill" --show-sql
+```
 
-**Answer:**  
-Across the retrieved senior data engineer postings, the salary range is mainly around **£80,000–£90,000**, with one retrieved role around **£59,000–£66,000**.
+```text
+================================================================================
+ANSWER
+================================================================================
+Answer:
+- R is a less prevalent skill for data analyst and AI engineer roles compared to Python, appearing in 17.5% of matching postings.
 
----
+Dataset-wide evidence:
+- Python is the most in-demand skill overall, appearing in 32.6% of the 2368 clean jobs analysed.
+- Machine learning is also a highly sought-after skill, present in 29.4% of clean jobs.
+- SQL and reporting skills are required in 18.1% and 17.5% of clean jobs, respectively.
 
-### 7. What skills are common in London data scientist roles?
+Examples from postings:
+- One AI Engineer role in the South East explicitly lists 'r' alongside Python and SQL as an extracted skill, indicating its utility in data analysis and model development.
+- Another AI Engineer position in London mentions 'r' as a potential skill for building proofs of concept, alongside Python and C#.
 
-**Answer:**  
-London data scientist roles commonly mention Python, SQL, machine learning libraries, AWS, model deployment, and communication with non-technical stakeholders.
+================================================================================
+ROUTE
+================================================================================
+hybrid
+
+================================================================================
+SQL DEBUG
+================================================================================
+SELECT
+            skill.value AS skill,
+            COUNT(*) AS job_count,
+            ROUND(100.0 * COUNT(*) / NULLIF(?, 0), 1) AS pct_jobs
+        FROM clean_jobs j, json_each(j.extracted_skills) AS skill
+        WHERE 1=1
+        GROUP BY skill.value
+        ORDER BY job_count DESC, skill.value ASC
+        LIMIT ?
+Params: [2368, 4]
+```
 
 ---
 
@@ -270,6 +365,27 @@ London data scientist roles commonly mention Python, SQL, machine learning libra
 ```bash
 ./jbvenv/bin/python rag_pipeline.py --ask "What do junior data analyst roles usually require?" --role "Data Analyst" --seniority junior
 ```
+
+### Run an analytical SQL-backed question
+```bash
+./jbvenv/bin/python rag_pipeline.py --ask "What are the top 10 skills for Data Analyst?" --show-sql
+```
+
+### Compare skill demand across roles
+```bash
+./jbvenv/bin/python rag_pipeline.py --ask "Compare Python demand for Data Analyst vs Data Scientist" --show-sql
+```
+
+### Example hybrid-style prompts
+```bash
+./jbvenv/bin/python rag_pipeline.py --ask "What is the demand for r for data analyst and AI engineer" --show-sql
+./jbvenv/bin/python rag_pipeline.py --ask "What is the demand for r for data analyst and AI engineer and what are the top 4 roles that require r as a skill" --show-sql
+```
+
+### Show the selected route
+When `--show-sql` is enabled, the CLI also shows:
+- the chosen route: `rag`, `sql`, or `hybrid`
+- the generated SQL template and parameters for analytical queries
 
 ---
 
@@ -320,15 +436,17 @@ python rag_pipeline.py --ask "What skills are common in data scientist roles?"
 
 - Salary coverage is incomplete, since many postings do not disclose salary
 - Adzuna descriptions are often shorter than Reed descriptions, which affects skill extraction quality
-- The current RAG pipeline is strongest on **qualitative, role-specific questions** rather than full-market aggregation questions
-- Questions such as “most common role in London” or full statistical summaries are better handled by SQL / analysis logic than by vector retrieval alone
+- Hybrid answers are only as good as both layers: SQL can be representative, but retrieved examples still depend on embedding quality
+- The analytical layer is intentionally constrained to approved question patterns rather than open-ended arbitrary SQL generation
+- Ambiguous prompts can still route imperfectly, especially when a question mixes several analytical asks into one sentence
 
 ---
 
 ## Next Steps
 
 - add a lightweight Streamlit interface
-- combine vector retrieval with SQL-style analytical responses for aggregate questions
+- expand the constrained SQL intents to support more multi-part analytical questions
+- improve routing for mixed prompts that combine demand, comparison, and ranking in one query
 - improve document representations for even stronger retrieval quality
 - expand README demo examples and deployment options
 
@@ -341,7 +459,7 @@ This project shows the ability to:
 - clean and normalize messy real-world job data
 - extract structured information from unstructured text
 - analyze labour-market patterns with narrative-driven EDA
-- design and implement a practical RAG pipeline using modern tools
+- design and implement a practical SQL-aware RAG pipeline using modern tools
 - make grounded engineering tradeoffs around retrieval quality and API limits
 
 ---
